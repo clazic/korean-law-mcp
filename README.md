@@ -16,12 +16,14 @@
 
 ## v2.3 변경사항
 
-**원격 MCP 주소:**
+**원격 MCP 주소** (`your-key` 부분에 [법제처 Open API](https://open.law.go.kr/LSO/openApi/guideResult.do)에서 발급받은 본인 인증키(OC)를 넣으세요):
 
 | 프로필 | URL | 도구 수 | 용도 |
 |--------|-----|---------|------|
 | lite | `https://korean-law-mcp.fly.dev/mcp?profile=lite&oc=your-key` | 14개 | Claude.ai 등 웹 클라이언트 (컨텍스트 87% 절감) |
 | full | `https://korean-law-mcp.fly.dev/mcp?oc=your-key` | 89개 | Claude Desktop, Cursor 등 네이티브 클라이언트 |
+
+예시: 발급받은 인증키가 `honggildong`이면 → `https://korean-law-mcp.fly.dev/mcp?profile=lite&oc=honggildong`
 
 > lite는 체인 8개 + 핵심 4개 + 메타 2개로 동일 기능 커버. 특수 도구는 `discover_tools` → `execute_tool`로 접근.
 

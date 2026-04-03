@@ -17,12 +17,14 @@
 
 ## What's New in v2.3
 
-**Remote MCP Endpoints:**
+**Remote MCP Endpoints** (replace `your-key` with your own API key from [법제처 Open API](https://open.law.go.kr/LSO/openApi/guideResult.do)):
 
 | Profile | URL | Tools | Best for |
 |---------|-----|-------|----------|
 | lite | `https://korean-law-mcp.fly.dev/mcp?profile=lite&oc=your-key` | 14 | Claude.ai and web clients (87% less context) |
 | full | `https://korean-law-mcp.fly.dev/mcp?oc=your-key` | 89 | Claude Desktop, Cursor, native clients |
+
+Example: if your key is `honggildong` → `https://korean-law-mcp.fly.dev/mcp?profile=lite&oc=honggildong`
 
 > Lite covers the same functionality with 8 chains + 4 core + 2 meta tools. Use `discover_tools` → `execute_tool` for specialized tools.
 
