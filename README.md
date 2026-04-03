@@ -14,23 +14,23 @@
 
 ---
 
-## v2.3.1 변경사항
+## v2.3 변경사항
 
-- **URL 쿼리 API 키 지원** — 원격 MCP 접속 시 `?oc=your-key`로 API 키를 URL에 포함 가능. 매 요청마다 키를 전달할 필요 없이 세션 전체에 자동 적용. Claude.ai 등 커스텀 헤더 설정이 어려운 웹 클라이언트에서 유용.
-- **체인 도구 자동 전문 조회** — `chain_ordinance_compare`가 자치법규 검색 후 상위 1건 전문을 자동 조회하여 반환. 별도로 `get_ordinance`를 호출할 필요 없음.
-- **lite 프로필 도구 라우팅 개선** — 체인/메타 도구 description을 INPUT 의도 기반으로 재작성. 예시 포함으로 Claude 웹이 자치법규 검색·조회 등 올바른 도구를 선택하도록 개선.
-- **도구 힌트 execute_tool 경로 통일** — 비lite 도구 안내를 `execute_tool()` 호출 예시로 변경. Claude 웹이 존재하지 않는 도구를 직접 호출하는 문제 방지.
+**원격 MCP 주소:**
 
-<details>
-<summary>v2.3.0 변경사항</summary>
+| 프로필 | URL | 도구 수 | 용도 |
+|--------|-----|---------|------|
+| lite | `https://korean-law-mcp.fly.dev/mcp?profile=lite&oc=your-key` | 14개 | Claude.ai 등 웹 클라이언트 (컨텍스트 87% 절감) |
+| full | `https://korean-law-mcp.fly.dev/mcp?oc=your-key` | 89개 | Claude Desktop, Cursor 등 네이티브 클라이언트 |
 
-- **도구 프로필 (lite/full)** — 웹 클라이언트(Claude.ai 등)용 lite 프로필 도입. 89개 → 14개로 자동 축소하여 컨텍스트 소비 87% 절감. `/mcp?profile=lite`로 사용.
-  - **체인 8개** + 핵심 직접 도구 4개 + 메타 도구 2개 = 14개로 동일 기능 커버
-  - `discover_tools`: 의도/카테고리로 숨겨진 전문 도구 검색
-  - `execute_tool`: discover로 찾은 도구를 프록시 실행
+> lite는 체인 8개 + 핵심 4개 + 메타 2개로 동일 기능 커버. 특수 도구는 `discover_tools` → `execute_tool`로 접근.
+
+- **도구 프로필 (lite/full)** — 89개 → 14개 자동 축소. 체인 도구가 내부에서 하위 도구를 직접 호출하므로 기능 손실 없음.
+- **URL 쿼리 API 키** — `?oc=your-key`로 세션 전체에 API 키 자동 적용. 커스텀 헤더 설정이 어려운 웹 클라이언트에서 필수.
+- **체인 자동 전문 조회** — `chain_ordinance_compare`가 자치법규 검색 후 상위 1건 전문을 자동 조회. 별도 `get_ordinance` 호출 불필요.
+- **lite 도구 라우팅 개선** — 체인/메타 도구 description을 사용자 질문 의도 기반으로 재작성 + 예시 포함. Claude 웹이 "광진구 복무 조례" 같은 자치법규 질문에도 정확한 도구 선택.
+- **도구 힌트 통일** — 비lite 도구 안내를 `execute_tool()` 호출 예시로 변경. 존재하지 않는 도구 직접 호출 문제 방지.
 - **kordoc 통합 파서** — 자체 HWP5/HWPX/PDF 파서 5개를 [kordoc](https://github.com/chrisryugj/kordoc) 통합 파서로 교체. 의존성 경량화.
-
-</details>
 
 <details>
 <summary>v2.2.0 변경사항</summary>

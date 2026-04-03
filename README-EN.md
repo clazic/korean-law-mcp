@@ -15,23 +15,23 @@
 
 ---
 
-## What's New in v2.3.1
+## What's New in v2.3
 
-- **URL Query API Key** — Pass your API key via `?oc=your-key` in the remote MCP URL. Automatically applies to the entire session — no need to pass the key with every tool call. Essential for web clients like Claude.ai where custom headers are hard to configure.
-- **Chain Auto Full-Text** — `chain_ordinance_compare` now auto-fetches the full text of the top result after search. No separate `get_ordinance` call needed.
-- **Lite Profile Routing Fix** — Rewrote chain/meta tool descriptions with INPUT-intent patterns and examples. Claude web now correctly picks `chain_ordinance_compare` for ordinance search/lookup queries.
-- **Tool Hint Unification** — All non-lite tool hints now show `execute_tool()` call examples instead of direct tool names, preventing Claude web from calling tools that don't exist in lite profile.
+**Remote MCP Endpoints:**
 
-<details>
-<summary>v2.3.0</summary>
+| Profile | URL | Tools | Best for |
+|---------|-----|-------|----------|
+| lite | `https://korean-law-mcp.fly.dev/mcp?profile=lite&oc=your-key` | 14 | Claude.ai and web clients (87% less context) |
+| full | `https://korean-law-mcp.fly.dev/mcp?oc=your-key` | 89 | Claude Desktop, Cursor, native clients |
 
-- **Tool Profiles (lite/full)** — New `lite` profile for web clients (Claude.ai, etc.). Reduces 89 tools to 14, cutting context consumption by 87%. Use `/mcp?profile=lite`.
-  - **8 chain tools** + 4 core tools + 2 meta tools = 14 tools with full coverage
-  - `discover_tools`: Find specialized tools by intent/category
-  - `execute_tool`: Execute any tool via proxy
+> Lite covers the same functionality with 8 chains + 4 core + 2 meta tools. Use `discover_tools` → `execute_tool` for specialized tools.
+
+- **Tool Profiles (lite/full)** — Auto-reduces 89 → 14 tools. Chain tools call sub-tools internally, so no functionality is lost.
+- **URL Query API Key** — `?oc=your-key` auto-applies to the entire session. Essential for web clients where custom headers are hard to configure.
+- **Chain Auto Full-Text** — `chain_ordinance_compare` now auto-fetches the full text of the top search result. No separate `get_ordinance` call needed.
+- **Lite Routing Fix** — Rewrote chain/meta tool descriptions with INPUT-intent patterns and examples. Claude web now correctly picks tools for ordinance search/lookup queries.
+- **Tool Hint Unification** — All non-lite tool hints show `execute_tool()` call examples instead of direct tool names, preventing calls to tools not in lite profile.
 - **kordoc Unified Parser** — Replaced 5 internal HWP5/HWPX/PDF parsers with [kordoc](https://github.com/chrisryugj/kordoc). Lighter dependencies.
-
-</details>
 
 <details>
 <summary>v2.2.0</summary>
