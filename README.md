@@ -288,7 +288,6 @@ korean-law help search_law                 # 도구별 도움말
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 시스템 설계
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — 개발 가이드
 
-
 ## 라이선스
 
 [MIT](./LICENSE)
