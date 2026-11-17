@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { LawApiClient } from "../lib/api-client.js";
 import { extractTag, parseSearchXML } from "../lib/xml-parser.js";
 import { truncateResponse } from "../lib/schemas.js";
-import { formatToolError } from "../lib/errors.js";
+import { formatToolError, noResultHint } from "../lib/errors.js";
+import { decisionFields } from "../lib/decision-fields.js";
 
 // ========================================
 // Common helpers
@@ -76,10 +77,7 @@ async function searchRules(
     const result = parseRuleXML(xmlText, target);
 
     if (result.totalCnt === 0) {
-      return {
-        content: [{ type: "text", text: `${cfg.label} 검색 결과가 없습니다. 다른 키워드를 시도하세요.` }],
-        isError: true,
-      };
+      return noResultHint(args.query || "", cfg.label)
     }
 
     let output = `${cfg.label} 검색 결과 (총 ${result.totalCnt}건, ${result.page}페이지):\n\n`;
@@ -93,7 +91,7 @@ async function searchRules(
     }
     output += `\n전문 조회: ${textToolName}(id="일련번호")`;
 
-    return { content: [{ type: "text", text: output }] };
+    return { content: [{ type: "text", text: truncateResponse(output) }] };
   } catch (error) {
     return formatToolError(error, `search_${target}_rules`);
   }
@@ -117,14 +115,16 @@ async function getRuleText(
     let data: any;
     try { data = JSON.parse(responseText); } catch { throw new Error("Failed to parse JSON response from API"); }
 
-    const rule = data[cfg.serviceKey];
-    if (!rule) throw new Error(`${cfg.label}을(를) 찾을 수 없거나 응답 형식이 올바르지 않습니다.`);
+    const record = data[cfg.serviceKey];
+    if (!record) throw new Error(`${cfg.label}을(를) 찾을 수 없거나 응답 형식이 올바르지 않습니다.`);
+    const rule = decisionFields(record);
+    const basic = decisionFields(record.행정규칙기본정보 || {});
 
-    let output = `=== ${rule.학칙명 || rule.규정명 || rule.제목 || cfg.label} ===\n\n`;
+    let output = `=== ${rule.학칙명 || rule.규정명 || rule.제목 || basic.행정규칙명 || cfg.label} ===\n\n`;
     output += `기본 정보:\n`;
-    if (rule.학교명 || rule.기관명) output += `  기관: ${rule.학교명 || rule.기관명}\n`;
-    if (rule.공포일자 || rule.제정일자) output += `  공포일: ${rule.공포일자 || rule.제정일자}\n`;
-    if (rule.시행일자) output += `  시행일: ${rule.시행일자}\n`;
+    if (rule.학교명 || rule.기관명 || basic.소관부처명) output += `  기관: ${rule.학교명 || rule.기관명 || basic.소관부처명}\n`;
+    if (rule.공포일자 || rule.제정일자 || basic.발령일자) output += `  공포일: ${rule.공포일자 || rule.제정일자 || basic.발령일자}\n`;
+    if (rule.시행일자 || basic.시행일자) output += `  시행일: ${rule.시행일자 || basic.시행일자}\n`;
     output += `\n`;
 
     if (rule.조문내용 || rule.본문) {

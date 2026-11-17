@@ -12,16 +12,26 @@ export function stripHtml(text: string): string {
 }
 
 /**
+ * 단일 객체 정규화 (Critical Rule 6) — API 응답의 배열 필드가 단일 객체로 올 수 있음.
+ * 기존 수동 패턴 `Array.isArray(x) ? x : x ? [x] : []`과 의미 동일 (falsy → []).
+ */
+export function toArray<T>(x: T | T[] | null | undefined): T[] {
+  return Array.isArray(x) ? x : x ? [x] : []
+}
+
+/**
  * XML 태그에서 텍스트 추출 (CDATA 지원)
  */
 export function extractTag(content: string, tag: string): string {
+  // 닫는 태그 뒤 공백을 허용한다. 법제처 공정위 결정문 검색은 `<사건번호>2009협심0509</사건번호 >`처럼
+  // 닫는 태그에 공백을 섞어 보내, 엄격 매칭이면 사건번호가 목록에서 통째로 빠졌다 (2026-09-23 리뷰 D9).
   // CDATA 형식 먼저 시도
-  const cdataRegex = new RegExp(`<${tag}><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}>`)
+  const cdataRegex = new RegExp(`<${tag}><!\\[CDATA\\[([\\s\\S]*?)\\]\\]><\\/${tag}\\s*>`)
   const cdataMatch = content.match(cdataRegex)
   if (cdataMatch) return cdataMatch[1]
 
   // 일반 형식 (태그 내 중첩 태그 허용: [\s\S]*? 사용)
-  const regex = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`)
+  const regex = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}\\s*>`)
   const match = content.match(regex)
   if (match) return match[1].trim()
 

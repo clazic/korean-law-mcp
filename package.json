@@ -1,7 +1,8 @@
 {
   "name": "korean-law-mcp",
-  "version": "2.3.2",
-  "description": "국가법령정보센터 API 기반 MCP 서버 - 한국 법령 조회·비교 도구",
+  "mcpName": "io.github.chrisryugj/korean-law-mcp",
+  "version": "4.15.23",
+  "description": "법제처 42개 API → 9개 MCP 도구. 법령·판례·조례·조약 + 다단계 리서치(legal_research, 8 task) + 정밀분석(legal_analysis: 인용검증·판례생사·행위시법·영향그래프) + 시점 비교(time_travel) + 상황별 5단계 안내(action_plan) + 국세청 해석례(nts)",
   "type": "module",
   "main": "build/index.js",
   "types": "build/index.d.ts",
@@ -28,21 +29,38 @@
     "korean-law": "build/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "clean": "node ./scripts/clean-build.mjs",
+    "build": "npm run clean && tsc",
     "watch": "tsc --watch",
     "start": "node build/index.js",
-    "start:sse": "node build/index.js --mode sse --port 3000",
     "cli": "node build/cli.js",
-    "prepublishOnly": "npm run build"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "dead-code": "knip",
+    "gc": "npm run typecheck && npm run dead-code && npm test && npm run build",
+    "verify:annex-runtime": "node ./scripts/verify-annex-runtime.mjs",
+    "verify:package": "node ./scripts/verify-package.mjs",
+    "prepack": "npm run build && npm run verify:package",
+    "prepublishOnly": "npm run build && npm run verify:package",
+    "prepare": "husky"
   },
   "keywords": [
     "mcp",
-    "cli",
+    "mcp-server",
     "korean-law",
     "법령",
-    "관세법",
+    "판례",
+    "법제처",
     "claude",
-    "model-context-protocol"
+    "model-context-protocol",
+    "legal-ai",
+    "cli",
+    "korea",
+    "legal-research",
+    "case-law",
+    "citation-verification",
+    "hallucination-detection"
   ],
   "author": "Chris",
   "license": "MIT",
@@ -52,20 +70,31 @@
     "commander": "^14.0.3",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "kordoc": "^1.6.1",
-    "pdfjs-dist": "^5.5.207",
-    "zod": "^3.25.76 || ^4.0.0",
-    "zod-to-json-schema": "^3.25.1"
+    "jszip": "3.10.2",
+    "kordoc": "4.24.25",
+    "pdfjs-dist": "4.10.38",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^22.19.3",
-    "typescript": "^5.9.3"
+    "husky": "^9.1.7",
+    "knip": "^6.24.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12"
+  },
+  "overrides": {
+    "hono": "^4.13.1",
+    "ip-address": "^10.5.0",
+    "sharp": "^0.35.3",
+    "adm-zip": "^0.6.0",
+    "onnxruntime-node": "^1.27.0"
   },
   "files": [
     "build",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "repository": {
     "type": "git",

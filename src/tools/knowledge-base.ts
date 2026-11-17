@@ -2,7 +2,8 @@ import { z } from "zod"
 import type { LawApiClient } from "../lib/api-client.js"
 import { truncateResponse } from "../lib/schemas.js"
 import { extractTag, parseKBXML, fallbackTermSearch } from "./kb-utils.js"
-import { formatToolError } from "../lib/errors.js"
+import { formatToolError, noResultHint } from "../lib/errors.js"
+import { parseLegalTermDetails } from "../lib/legal-term-detail.js"
 
 // ============================================================================
 // 법령정보 지식베이스 API
@@ -10,6 +11,68 @@ import { formatToolError } from "../lib/errors.js"
 // - 용어-조문 연계
 // - 관련법령 조회
 // ============================================================================
+
+// ----------------------------------------------------------------------------
+// 연계 API(lstrmRlt / lstrmRltJo / lsRlt) 전용 파서
+//
+// 이 세 응답은 항목을 한글 래퍼(<연계용어>/<연계법령>/<관련법령>)에 담고 필드명도
+// 다르다. 공유 parseKBXML은 항목 태그를 ["lstrm","lstrmAI","law","jo","rel","item"]로
+// 고정하므로 여기서는 언제나 0건이 된다. parseKBXML은 정상 동작 중인 다른 도구
+// (get_legal_term_kb·fallbackTermSearch)가 함께 쓰므로 손대지 않고,
+// 이 파일의 연계 도구 4개와 get_daily_term(dlytrm, <일상용어> 래퍼)만 쓰는 파서를 둔다.
+//
+// <검색결과개수>는 기준 용어·기준 법령의 개수(항상 1)이지 연계 항목 수가 아니라
+// 총건수로 쓸 수 없다. 파싱한 항목 수를 총건수로 쓴다.
+// ----------------------------------------------------------------------------
+interface RelationItem {
+  법령명?: string
+  법령ID?: string
+  관계유형?: string
+  조문번호?: string
+  조문표기?: string
+  조문제목?: string
+  연계용어명?: string
+}
+
+function parseRelationXML(
+  xml: string,
+  itemTag: string,
+  mapItem: (content: string) => RelationItem | null,
+  limit?: number
+): RelationItem[] {
+  const items: RelationItem[] = []
+  const itemRegex = new RegExp(`<${itemTag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${itemTag}>`, "g")
+
+  for (const match of xml.matchAll(itemRegex)) {
+    const item = mapItem(match[1])
+    if (!item) continue
+
+    items.push(item)
+    if (limit && items.length >= limit) break
+  }
+
+  return items
+}
+
+/** <연계용어> 항목. 일상↔법령 양방향이 같은 target(lstrmRlt)을 쓰므로 공통이다. */
+function mapRelatedTerm(content: string): RelationItem | null {
+  const name = extractTag(content, "일상용어명") || extractTag(content, "법령용어명")
+  return name ? { 연계용어명: name } : null
+}
+
+/**
+ * 조번호 "0024" + 조가지번호 "02" → "제24조의2"
+ * 가지번호를 조 앞에 붙인 "제24의2조"는 존재하지 않는 조문 표기다.
+ */
+function formatArticleLabel(content: string): { 조문번호: string; 조문표기: string } {
+  const articleNumber = Number.parseInt(extractTag(content, "조번호") || "0", 10)
+  if (!articleNumber) return { 조문번호: "", 조문표기: "" }
+
+  const branchNumber = Number.parseInt(extractTag(content, "조가지번호") || "0", 10)
+  return branchNumber > 0
+    ? { 조문번호: `${articleNumber}의${branchNumber}`, 조문표기: `제${articleNumber}조의${branchNumber}` }
+    : { 조문번호: String(articleNumber), 조문표기: `제${articleNumber}조` }
+}
 
 // 1. 법령용어 지식베이스 조회 (lstrmAI)
 export const getLegalTermKBSchema = z.object({
@@ -46,10 +109,7 @@ export async function getLegalTermKB(
     const items = result.data;
 
     if (totalCount === 0 || items.length === 0) {
-      return {
-        content: [{ type: "text", text: `'${args.query}' 검색 결과가 없습니다.` }],
-        isError: true,
-      };
+      return noResultHint(args.query, "법령용어 지식베이스")
     }
 
     let output = `법령용어 지식베이스 (${totalCount}건):\n\n`;
@@ -62,7 +122,7 @@ export async function getLegalTermKB(
       output += `\n`;
     }
 
-    return { content: [{ type: "text", text: output }] };
+    return { content: [{ type: "text", text: truncateResponse(output) }] };
   } catch (error) {
     return formatToolError(error, "get_legal_term_kb");
   }
@@ -88,36 +148,28 @@ export async function getLegalTermDetail(
       apiKey: args.apiKey,
     });
 
-    // Parse the detail response
-    const termName = extractTag(xmlText, "법령용어명_한글") || extractTag(xmlText, "법령용어명");
-    const termHanja = extractTag(xmlText, "법령용어명_한자");
-    const definition = extractTag(xmlText, "법령용어정의");
-    const source = extractTag(xmlText, "출처");
-    const code = extractTag(xmlText, "법령용어코드명");
+    const records = parseLegalTermDetails(xmlText);
 
-    if (!termName && !definition) {
+    if (records.length === 0) {
       return {
-        content: [{ type: "text", text: `'${args.query}' 용어를 찾을 수 없습니다.` }],
+        content: [{ type: "text", text: `[NOT_FOUND] '${args.query}' 용어를 찾을 수 없습니다.\n⚠️ LLM은 용어 정의를 추측/생성하지 마세요.` }],
         isError: true,
       };
     }
 
     let output = `법령용어 상세\n\n`;
-    output += `${termName}`;
-    if (termHanja) output += ` (${termHanja})`;
-    output += `\n\n`;
+    for (const record of records) {
+      output += record.name;
+      if (record.hanja) output += ` (${record.hanja})`;
+      output += `\n\n`;
 
-    if (definition) {
-      output += `정의:\n${definition}\n\n`;
-    }
-    if (source) {
-      output += `출처: ${source}\n`;
-    }
-    if (code) {
-      output += `분류: ${code}\n`;
+      if (record.definition) output += `정의:\n${record.definition}\n\n`;
+      if (record.source) output += `출처: ${record.source}\n`;
+      if (record.code) output += `분류: ${record.code}\n`;
+      output += `\n`;
     }
 
-    return { content: [{ type: "text", text: output }] };
+    return { content: [{ type: "text", text: truncateResponse(output) }] };
   } catch (error) {
     return formatToolError(error, "get_legal_term_detail");
   }
@@ -138,41 +190,34 @@ export async function getDailyTerm(
   args: GetDailyTermInput
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {
+    // 일상용어는 전용 target(dlytrm)에 있다. 종전 lstrm+dicKndCd=011402는 도구 예시 '월세'부터 0건이었다:
+    // 011402는 일상용어 코드가 아니다(필터 없는 lstrm '월세' 2건이 모두 사전구분코드 011402인데 그 필터로는 0건).
+    // dlytrm은 같은 질의에 일상용어 15건을 준다 (2026-09-23 리뷰 D12 실측).
     const xmlText = await apiClient.fetchApi({
       endpoint: "lawSearch.do",
-      target: "lstrm",
+      target: "dlytrm",
       extraParams: {
         query: args.query,
         display: (args.display || 20).toString(),
         page: (args.page || 1).toString(),
-        dicKndCd: "011402",
       },
       apiKey: args.apiKey,
     });
-    const result = parseKBXML(xmlText, "LsTrmSearch");
-
-    const totalCount = parseInt(result.totalCnt || "0");
-    const items = result.data || [];
+    // 응답: <dlytrmSearch><검색결과개수>N</검색결과개수><일상용어 id="1"><일상용어명>…</일상용어명>…</일상용어>
+    const items = parseRelationXML(xmlText, "일상용어", mapRelatedTerm);
+    const totalCount = parseInt(extractTag(xmlText, "검색결과개수") || extractTag(xmlText, "totalCnt") || "0", 10);
 
     if (totalCount === 0 || items.length === 0) {
-      return {
-        content: [{
-          type: "text",
-          text: `'${args.query}' 일상용어 검색 결과가 없습니다.`
-        }],
-        isError: true,
-      };
+      return noResultHint(args.query, "일상용어")
     }
 
     let output = `일상용어 검색 결과 (${totalCount}건):\n\n`;
 
     for (const item of items) {
-      output += `${item.법령용어명 || item.용어명}\n`;
-      if (item.법령용어ID) output += `   ID: ${item.법령용어ID}\n`;
-      output += `\n`;
+      output += `${item.연계용어명}\n\n`;
     }
 
-    return { content: [{ type: "text", text: output }] };
+    return { content: [{ type: "text", text: truncateResponse(output) }] };
   } catch (error) {
     return formatToolError(error, "get_daily_term");
   }
@@ -191,23 +236,19 @@ export async function getDailyToLegal(
   args: GetDailyToLegalInput
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {
-    let xmlText: string;
-    try {
-      xmlText = await apiClient.fetchApi({
-        endpoint: "lawSearch.do",
-        target: "lstrmRel",
-        extraParams: { query: args.dailyTerm, relType: "DL" },
-        apiKey: args.apiKey,
-      });
-    } catch {
-      return await fallbackTermSearch(apiClient, args.dailyTerm, "일상용어");
-    }
-    const result = parseKBXML(xmlText, "LsTrmRelSearch");
-
-    const items = result.data || [];
+    // 일상용어 → 법령용어 연계는 dlytrmRlt다. lstrmRlt는 법령용어를 기준으로 찾아서 일상용어를 넣으면
+    // "일치하는 법령용어가 없습니다"만 온다(실측 '월세보증금'). dlytrmRlt는 도구 예시 '월세'에 임대차 등 10건을 준다.
+    // 조회 오류는 폴백으로 덮지 않고 그대로 올린다: 장애가 "연계 정보 없음"으로 읽혔다 (2026-09-23 리뷰 D8·D12).
+    const xmlText = await apiClient.fetchApi({
+      endpoint: "lawService.do",
+      target: "dlytrmRlt",
+      extraParams: { query: args.dailyTerm },
+      apiKey: args.apiKey,
+    });
+    const items = parseRelationXML(xmlText, "연계용어", mapRelatedTerm);
 
     if (items.length === 0) {
-      return await fallbackTermSearch(apiClient, args.dailyTerm, "일상용어");
+      return await fallbackTermSearch(apiClient, args.dailyTerm, "일상용어", args.apiKey);
     }
 
     let output = `일상용어 → 법령용어 연계\n\n`;
@@ -215,10 +256,10 @@ export async function getDailyToLegal(
     output += `관련 법령용어:\n`;
 
     for (const item of items) {
-      output += `   • ${item.법령용어명 || item.연계용어명}\n`;
+      output += `   • ${item.연계용어명}\n`;
     }
 
-    return { content: [{ type: "text", text: output }] };
+    return { content: [{ type: "text", text: truncateResponse(output) }] };
   } catch (error) {
     return formatToolError(error, "get_daily_to_legal");
   }
@@ -237,23 +278,17 @@ export async function getLegalToDaily(
   args: GetLegalToDailyInput
 ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   try {
-    let xmlText: string;
-    try {
-      xmlText = await apiClient.fetchApi({
-        endpoint: "lawSearch.do",
-        target: "lstrmRel",
-        extraParams: { query: args.legalTerm, relType: "LD" },
-        apiKey: args.apiKey,
-      });
-    } catch {
-      return await fallbackTermSearch(apiClient, args.legalTerm, "법령용어");
-    }
-    const result = parseKBXML(xmlText, "LsTrmRelSearch");
-
-    const items = result.data || [];
+    // 조회 오류는 폴백으로 덮지 않고 그대로 올린다. 폴백은 연계 항목이 0건일 때만 탄다 (2026-09-23 리뷰 D8).
+    const xmlText = await apiClient.fetchApi({
+      endpoint: "lawService.do",
+      target: "lstrmRlt",
+      extraParams: { query: args.legalTerm },
+      apiKey: args.apiKey,
+    });
+    const items = parseRelationXML(xmlText, "연계용어", mapRelatedTerm);
 
     if (items.length === 0) {
-      return await fallbackTermSearch(apiClient, args.legalTerm, "법령용어");
+      return await fallbackTermSearch(apiClient, args.legalTerm, "법령용어", args.apiKey);
     }
 
     let output = `법령용어 → 일상용어 연계\n\n`;
@@ -261,10 +296,10 @@ export async function getLegalToDaily(
     output += `관련 일상용어:\n`;
 
     for (const item of items) {
-      output += `   • ${item.일상용어명 || item.연계용어명}\n`;
+      output += `   • ${item.연계용어명}\n`;
     }
 
-    return { content: [{ type: "text", text: output }] };
+    return { content: [{ type: "text", text: truncateResponse(output) }] };
   } catch (error) {
     return formatToolError(error, "get_legal_to_daily");
   }
@@ -286,13 +321,12 @@ export async function getTermArticles(
   try {
     let xmlText: string;
     try {
+      // lawService.do는 display를 무시하고 연계 조문 전문을 통째로 준다
+      // (임대차 기준 196건·약 430KB). 건수 제한은 파서에서 건다.
       xmlText = await apiClient.fetchApi({
-        endpoint: "lawSearch.do",
-        target: "lstrmJo",
-        extraParams: {
-          query: args.term,
-          display: (args.display || 20).toString(),
-        },
+        endpoint: "lawService.do",
+        target: "lstrmRltJo",
+        extraParams: { query: args.term },
         apiKey: args.apiKey,
       });
     } catch {
@@ -304,31 +338,34 @@ export async function getTermArticles(
         isError: true,
       };
     }
-    const result = parseKBXML(xmlText, "LsTrmJoSearch");
+    const items = parseRelationXML(xmlText, "연계법령", (content) => {
+      const 법령명 = extractTag(content, "법령명");
+      if (!법령명) return null;
 
-    const totalCount = parseInt(result.totalCnt || "0");
-    const items = result.data || [];
+      // 조문제목은 별도 필드가 없어 조문내용 머리("제24조의2(임대차 기간)")에서 뽑는다
+      const title = (extractTag(content, "조문내용") || "").match(/제\d+조(?:의\d+)?\s*\(([^)]{1,60})\)/);
+      return { 법령명, ...formatArticleLabel(content), 조문제목: title ? title[1] : "" };
+    }, args.display || 20);
 
-    if (totalCount === 0 || items.length === 0) {
+    if (items.length === 0) {
       return {
         content: [{
           type: "text",
-          text: `'${args.term}' 용어가 사용된 조문을 찾을 수 없습니다.`,
+          text: `[NOT_FOUND] '${args.term}' 용어가 사용된 조문을 찾을 수 없습니다.\n⚠️ LLM은 조문을 추측하지 마세요.`,
         }],
         isError: true,
       };
     }
 
-    let output = `'${args.term}' 용어 사용 조문 (${totalCount}건):\n\n`;
+    let output = `'${args.term}' 용어 사용 조문 (${items.length}건):\n\n`;
 
     for (const item of items) {
       output += `${item.법령명}\n`;
-      if (item.조문번호) {
-        output += `   제${item.조문번호}조`;
+      if (item.조문표기) {
+        output += `   ${item.조문표기}`;
         if (item.조문제목) output += ` (${item.조문제목})`;
         output += `\n`;
       }
-      if (item.법령ID) output += `   법령ID: ${item.법령ID}\n`;
       output += `\n`;
     }
 
@@ -369,7 +406,7 @@ export async function getRelatedLaws(
     try {
       xmlText = await apiClient.fetchApi({
         endpoint: "lawSearch.do",
-        target: "lawRel",
+        target: "lsRlt",
         extraParams,
         apiKey: args.apiKey,
       });
@@ -377,33 +414,38 @@ export async function getRelatedLaws(
       return {
         content: [{
           type: "text",
-          text: `관련법령 조회 실패.`,
+          text: `[API_ERROR] 관련법령 조회 실패.\n⚠️ LLM은 관련 법령을 추측/생성하지 마세요. 잠시 후 재시도하세요.`,
         }],
         isError: true,
       };
     }
-    const result = parseKBXML(xmlText, "LawRelSearch");
+    const items = parseRelationXML(xmlText, "관련법령", (content) => {
+      const 법령명 = extractTag(content, "관련법령명");
+      if (!법령명) return null;
 
-    const totalCount = parseInt(result.totalCnt || "0");
-    const items = result.data || [];
+      return {
+        법령명,
+        법령ID: extractTag(content, "관련법령ID"),
+        관계유형: extractTag(content, "법령간관계"),
+      };
+    }, args.display || 20);
 
-    if (totalCount === 0 || items.length === 0) {
+    if (items.length === 0) {
       return {
         content: [{
           type: "text",
-          text: `관련법령을 찾을 수 없습니다.`,
+          text: `[NOT_FOUND] 관련법령을 찾을 수 없습니다.\n⚠️ LLM은 관련 법령을 추측하지 마세요.`,
         }],
         isError: true,
       };
     }
 
-    let output = `관련법령 (${totalCount}건):\n\n`;
+    let output = `관련법령 (${items.length}건):\n\n`;
 
     for (const item of items) {
       output += `${item.법령명}\n`;
       if (item.관계유형) output += `   관계: ${item.관계유형}\n`;
       if (item.법령ID) output += `   법령ID: ${item.법령ID}\n`;
-      if (item.법령종류) output += `   종류: ${item.법령종류}\n`;
       output += `\n`;
     }
 
@@ -414,4 +456,3 @@ export async function getRelatedLaws(
     return formatToolError(error, "get_related_laws");
   }
 }
-

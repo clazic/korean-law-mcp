@@ -2,7 +2,9 @@ import { z } from "zod"
 import type { LawApiClient } from "../lib/api-client.js"
 import { parseAdminAppealXML as parseAdminAppealXMLShared } from "../lib/xml-parser.js"
 import { truncateResponse } from "../lib/schemas.js"
-import { formatToolError } from "../lib/errors.js"
+import { formatToolError, noResultHint } from "../lib/errors.js"
+import { decisionFields } from "../lib/decision-fields.js"
+import { compactBody, stripRepeatedSummary } from "../lib/decision-compact.js"
 
 // Administrative appeal decision search tool - Search for administrative tribunal rulings
 export const searchAdminAppealsSchema = z.object({
@@ -42,15 +44,7 @@ export async function searchAdminAppeals(
     const appeals = result.items;
 
     if (totalCount === 0) {
-      let errorMsg = "검색 결과가 없습니다.";
-
-      return {
-        content: [{
-          type: "text",
-          text: errorMsg
-        }],
-        isError: true
-      };
+      return noResultHint(args.query || "", "행정심판")
     }
 
     let output = `행정심판례 검색 결과 (총 ${totalCount}건, ${currentPage}페이지):\n\n`;
@@ -72,7 +66,7 @@ export async function searchAdminAppeals(
     return {
       content: [{
         type: "text",
-        text: output
+        text: truncateResponse(output)
       }]
     };
   } catch (error) {
@@ -84,6 +78,7 @@ export async function searchAdminAppeals(
 export const getAdminAppealTextSchema = z.object({
   id: z.string().describe("행정심판재결례일련번호 (검색 결과에서 획득)"),
   caseName: z.string().optional().describe("사건명 (선택사항, 검증용)"),
+  full: z.boolean().optional().describe("true=이유 전문 그대로. 미지정 시 '이유' 섹션 계단식 축약"),
   apiKey: z.string().optional().describe("법제처 Open API 인증키(OC). 사용자가 제공한 경우 전달"),
 });
 
@@ -112,11 +107,11 @@ export async function getAdminAppealText(
       throw new Error("Failed to parse JSON response from API");
     }
 
-    if (!data.DeccService && !data.행정심판례) {
+    if (!data.DeccService && !data.행정심판례 && !data.PrecService) {
       throw new Error("행정심판례를 찾을 수 없거나 응답 형식이 올바르지 않습니다.");
     }
 
-    const appeal = data.DeccService || data.행정심판례;
+    const appeal = decisionFields(data.DeccService || data.행정심판례 || data.PrecService);
 
     let output = `=== ${appeal.사건명 || "행정심판례"} ===\n\n`;
 
@@ -142,7 +137,9 @@ export async function getAdminAppealText(
     }
 
     if (appeal.이유) {
-      output += `이유:\n${appeal.이유}\n`;
+      const deduped = stripRepeatedSummary(appeal.이유, [appeal.재결요지, appeal.주문]);
+      const compacted = compactBody(deduped, { full: args.full });
+      output += `이유:\n${compacted}\n`;
     }
 
     return {

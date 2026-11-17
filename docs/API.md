@@ -1,8 +1,8 @@
 # Korean Law MCP - API Reference
 
-> **v2.3.2** | 89개 도구 (lite 14개 / full 89개 프로필 지원)
+> **v4.13.0** | 10개 노출 도구 (내부 100개, 미노출 도구는 execute_tool 또는 직접 호출로 접근)
 
-도구 목록은 [README.md](../README.md#도구-목록-87개) 참조.
+도구 구조는 [README.md](../README.md) 참조.
 상세 파라미터는 각 도구의 Zod 스키마(`src/tools/*.ts`) 참조.
 
 ---
@@ -32,10 +32,9 @@
 제10조의2 → 001002
 ```
 
-**자치법규**는 `AABBCC` 형식:
-- `AA`: 조 번호 (01~99)
-- `BB`: 의X (00~99)
-- `CC`: 서브 (00~99)
+**자치법규**도 동일한 `AAAABB` 형식 사용 (API 응답 확인):
+- `get_ordinance`의 `jo` 파라미터에 한글(`"제20조"`) 입력 시 자동 변환
+- 참고: `buildOrdinanceJO`(AABBCC)는 JO 코드 유틸리티용으로만 존재
 
 ### 에러 응답
 
@@ -65,12 +64,37 @@
 
 ## 도구 카테고리
 
-### 검색 (11개)
+### 통합 진입점 (2개, 직노출 — v4.4.0)
+
+| 도구 | 설명 |
+|------|------|
+| `legal_research` | 다단계 리서치 — `task` 8종(full_research·law_system·action_basis·dispute_prep·amendment_track·ordinance_compare·procedure_detail·document_review)으로 아래 체인 도구 8개를 디스패치 |
+| `legal_analysis` | 정밀 분석/검증 — `mode` 4종(verify_citations·cite_check·applicable_law·impact_map)으로 아래 킬러 기능 4개를 디스패치. 비용 옵션 패스스루: `maxCitations`(기본 15), `display`(기본 20), `deepScan`(기본 true), `includeOrdinances`(기본 true), `includeMermaid`(기본 true) — v4.4.1 |
+
+**mode별 필수 파라미터**
+
+| mode | 필수 | 선택 |
+|---|---|---|
+| `verify_citations` | `text` | `maxCitations` |
+| `cite_check` | `caseNumber` (문장 포함 가능 — `"2013다61381 아직 유효해?"`) | `display`, `deepScan` |
+| `applicable_law` | `lawName`, `date` | `jo` |
+| `impact_map` | `lawName`, `jo` | `includeOrdinances`, `includeMermaid` |
+
+`jo`는 자연어 표기(`"제103조"`, `"제10조의2"`)와 6자리 JO 코드(`"010300"`, `"001002"`)를 모두 수용한다.
+
+### 조례 정비 레이더 (1개, 직노출 — v4.7.0)
+
+| 도구 | 설명 |
+|------|------|
+| `ordinance_radar` | 조례 제1조(목적)에서 근거 상위법령(법률/시행령/시행규칙)을 추출하고, 각 상위법의 현행 시행일 vs 조례 시행일을 대조해 "상위법이 조례 시행 이후 개정 → 정비 검토 대상"을 자동 플래그. `ordinSeq`(또는 `id`)나 `ordinanceName` 중 하나 필수. 본문 전체가 아닌 목적 조문만 스캔해 별표의 무관 인용(감면대상 정의 등) 과잉경보를 배제. lnkOrd 연계 API는 커버리지가 낮아 미사용 |
+
+### 검색 (12개)
 
 | 도구 | target | 설명 |
 |------|--------|------|
-| `search_law` | `law` | 법령명 검색 (약칭 자동 인식) |
-| `search_admin_rule` | `admrul` | 훈령/예규/고시/공고 |
+| `search_law` | `law`+`eflaw` | 법령명 검색 (약칭 자동 인식, 제명변경·시행예정 개정 자동 병기) |
+| `search_law_bulk` | `law`+`eflaw` | 법령명 배열 일괄 조회 — 건당 `법령ID·MST·시행일·시행예정`만 컴팩트 반환. `previous={법령ID:직전MST}` 로 **변경분만** 받는 diff 모드 (준법 등록부 정기 감시용, 최대 40건/호출) |
+| `search_admin_rule` | `admrul` | 훈령/예규/고시/공고. `history: true` 면 행정규칙ID별 발령 연혁표(옛 명칭 시절까지, v4.15.0) |
 | `search_ordinance` | `ordin` | 조례/규칙 |
 | `search_precedents` | `prec` | 판례 |
 | `search_interpretations` | `expc` | 법령해석례 |
@@ -79,15 +103,33 @@
 | `parse_jo_code` | - | 조문번호 ↔ 코드 변환 |
 | `get_law_history` | - | 특정일 법령 변경 목록 |
 | `advanced_search` | - | 기간/AND/OR 검색 |
-| `get_annexes` | - | 별표/서식 조회 + HWPX/HWP 본문 추출 |
+| `get_annexes` | - | 별표/서식 조회 + HWPX/HWP 본문 추출 (아래 파라미터 표 참조) |
+
+#### `get_annexes` 파라미터
+
+| 파라미터 | 필수 | 설명 |
+|---|---|---|
+| `lawName` | ✓ | 법령명. 표기를 함께 실어도 된다 — `"관세법 별표4"`, `"관세법 별표 1의2"`, `"관세법 별표 제4호"` |
+| `annexNo` | | 별표 번호. `"4"` · `"별표4"` · `"제4호"` · `"4의2"` 모두 수용 (가지번호는 6자리 코드 `000402`로 정규화) |
+| `bylSeq` | | 법제처 별표번호 6자리 코드 직접 지정 (`"000300"`) |
+| `query` | | **번호를 모를 때** 별표명으로 좁히기 (`"운전면허 취소·정지"`, `"과태료"`). 1건으로 좁혀지면 그 별표 본문을 바로 추출한다. 자연어 라우팅에서 번호 없는 별표 질의가 이 값으로 온다 |
+| `jo` | | 위임 조문 (`"제38조"`, `"38"`). 별표명의 `(제38조 관련)` 표기와 대조해 좁히고 응답에 위임 관계를 표기 |
+| `knd` | | `1`=별표 `2`=서식 `3`=부칙별표 `4`=부칙서식 `5`=전체 |
+| `date` | | 기준일(`"2015-06-01"` 등). 그날 시행 중이던 법령 버전의 별표를 조회한다(v4.15.0). 버전은 법령ID 계보로 특정하므로 제명이 바뀐 법령의 옛 버전도 나오고, 분리시행이면 시행일별 별표 파일을 고른다. 시점마다 별표 번호가 달라질 수 있어 `query` 로 별표명을 주는 편이 안전하다. 법령(법률·대통령령·부령)만 지원 |
+
+**별표번호 6자리 코드(AAAABB)** — 번호 4자리 + 가지번호 2자리. JO 코드와 같은 체계다.
+`002800`=별표 28, `012800`=별지 제128호, `002003`=별지 제20호의3 (2026-08-17 licbyl 실측).
+
+목록 조회는 업스트림이 한 페이지당 100건에서 자르므로(`display` 상향 불가) `page`로 이어 받는다.
+상한 5페이지(500건)이며, 걸리면 응답 맨 앞에 `⚠️ … 500건까지만 수집`을 명시한다.
 
 ### 조회 (9개)
 
 | 도구 | 설명 |
 |------|------|
-| `get_law_text` | 법령 조문 전문 |
-| `get_admin_rule` | 행정규칙 전문 |
-| `get_ordinance` | 자치법규 전문 |
+| `get_law_text` | 법령 조문 전문. `efYd` 가 그 법령의 시행일이 아니면(오늘·사건일) 그날 시행 중이던 버전으로 보정해 조회하고 첫 줄에 밝힌다 (v4.15.0) |
+| `get_admin_rule` | 행정규칙 전문. 부분 조회 `jo`(제N조, 화재안전기술기준식 절 번호 `2.7.3`)·`chapter`·`keyword`·`page`. 연혁 일련번호면 머리말에 연혁본 표시 |
+| `get_ordinance` | 자치법규 전문 (`jo`로 특정 조문 조회 가능) |
 | `get_precedent_text` | 판례 전문 |
 | `get_interpretation_text` | 해석례 전문 |
 | `get_batch_articles` | 여러 조문 일괄 조회 (`laws` 배열로 복수 법령 지원) |
@@ -109,6 +151,12 @@
 | `parse_article_links` | 조문 내 참조 파싱 |
 | `get_external_links` | 외부 링크 생성 |
 | `analyze_document` | 문서 유형 분류 + 리스크 탐지 |
+
+### 개정 입안 (1개)
+
+| 도구 | 설명 |
+|------|------|
+| `amendment_table` | 노출 진입점은 `legal_analysis(mode="amendment_table", lawName, amendments)`. 일부개정안 신·구조문대비표. `amendments[].text`(개정 후 조문 전문)만 주면 현행 조문을 조회해 대조한다 — 바뀐 부분 밑줄, 개정안 칸의 같은 부분 `----`(문장 끝 마침표 유지), 같은 항·호는 `①·② (생  략)`/`(현행과 같음)`(셋 이상 `① ∼ ⑪`), `<신  설>`·`<삭  제>`·`<단서 신설>`·`<후단 신설>`. 현행 원문 직접 입력은 `currentText`(조례·행정규칙·미공포안). 로컬 실행(STDIO·CLI)에서만 `outputPath`로 `.hwpx` 저장(한양신명조 14pt·줄 간격 180%·법제업무편람 서식) |
 
 ### 전문 (4개)
 
@@ -149,7 +197,7 @@
 |------|------|
 | `search_ai_law` | AI 지능형 법령검색 (자연어, `lawTypes` 필터) |
 | `search_english_law` / `get_english_law_text` | 영문법령 검색/조회 |
-| `search_historical_law` / `get_historical_law` | 연혁법령 검색/조회 |
+| `search_historical_law` / `get_historical_law` | 연혁법령 검색/조회. 검색은 법령ID 계보(`eflaw` `LID`)로 제명이 바뀌기 전 버전까지 시행일별로 모으고 제명 변천을 병기한다. 조회는 `mst` 와 `efYd` 를 함께 넘기면 분리시행 슬라이스를 정확히 집는다 (v4.15.0) |
 | `search_legal_terms` | 법령용어 사전 검색 |
 | `get_law_system_tree` | 법령체계도 |
 | `get_law_abbreviations` | 법령 약칭 목록 조회 |
@@ -188,7 +236,16 @@
 | `search_appeal_review_decisions` | 소청심사 검색 |
 | `get_appeal_review_decision_text` | 소청심사 전문 |
 
-### 체인 도구 (8개)
+### 킬러 기능 (4개 — v4.4.0부터 `legal_analysis`의 mode로 노출, 직접 호출도 가능)
+
+| 도구 | 설명 |
+|------|------|
+| `verify_citations` | LLM 환각 방지 — 텍스트 내 조문 인용 추출 + 법제처 DB 실존 교차검증 (v3.5). 표기 내성: `「법령명」`·가운뎃점(`·ㆍ‧•・`)·`같은 법`/`동법` 조응 해소 (v4.9.0). 법령명을 특정할 수 없으면 검색하지 않고 `⚠ 법령명 불명확` — 검색 0건을 `✗ NOT_FOUND`로 낙인하지 않는다 |
+| `impact_map` | 조문 영향 그래프 — 인용 판례·헌재·해석·행심·자치법규 역방향 탐색 + mermaid (v4.0) |
+| `cite_check` | 판례 생사 확인 — 사건번호로 후속 인용 역추적(본문검색) + 전합 변경·폐기 문구 감지, 별칭 추적 포함 (v4.3) |
+| `applicable_law` | 행위시법 판단 — 기준일 시행 버전 특정 + 시점 조문 + 현행 비교 + 부칙 적용례·경과조치 발췌 (v4.3). v4.15.0: 법령ID 계보로 옛 법령명 시절 버전까지 특정하고, 사이에 전부개정이 끼면 조번호 비교를 생략·경고한다. 법령이 아닌 이름은 행정규칙 발령 연혁(행정규칙ID 계보, 예: 화재안전기준 NFSC→NFPC)으로 판단한다 |
+
+### 체인 도구 (8개 — v4.4.0부터 `legal_research`의 task로 노출, 직접 호출도 가능)
 
 여러 도구를 자동 조합하여 복합 리서치를 한 번에 수행.
 
@@ -202,6 +259,37 @@
 | `chain_full_research` | 종합 리서치 (AI검색→법령→판례→해석) |
 | `chain_procedure_detail` | 절차/비용/서식 (법체계→별표→시행규칙별표) |
 | `chain_document_review` | 문서 리뷰 (문서분석→관련법령→판례) |
+
+---
+
+### 메타 도구 (2개, 직노출)
+
+| 도구 | 설명 |
+|------|------|
+| `discover_tools` | 의도/카테고리 자연어로 도구 찾기 |
+| `execute_tool` | 미노출 도구 프록시 실행 (`tool_name` + `params`) |
+
+**`discover_tools` 응답 형식**
+
+```
+"<intent>" 관련 도구:
+
+[카테고리]
+  - tool_name: 설명
+  - ...
+
+(연관도 낮은 N개 카테고리 생략 — intent를 좁히면 나머지가 보입니다.)
+
+<말미 안내>
+```
+
+- 별칭이 직접 겨냥하는 의도 카테고리는 **1-hop 진입점**(`legal_research`/`legal_analysis`)을 앞세운다.
+  예: `"판례 유효성"` → `[판례생사] legal_analysis, cite_check`
+- 노출 도구는 설명 대신 `노출 도구 — 직접 호출` 포인터로 실린다 (같은 description을 반복해 싣지 않음).
+- 말미 안내는 결과에 따라 갈린다 — 노출 도구가 섞이면
+  `"<노출도구>는 그대로 호출하세요. 나머지는 execute_tool 경유입니다."`,
+  전부 미노출이면 `"execute_tool로 실행하세요."`
+- 무매칭이면 전체 카테고리 목록 대신 카테고리 수 + 대표 카테고리만 돌려준다.
 
 ---
 
@@ -225,6 +313,19 @@
 3. compare_articles(law1={mst: mst1, jo:"74조"}, law2={mst: mst2, jo:"18조"})
 ```
 
+### 신·구조문대비표 (amendment_table)
+
+```
+legal_analysis(mode="amendment_table",
+  lawName: "건축법",
+  amendments: [{ text: "제22조(건축물의 사용승인) ① 건축주가 … 공사완료도서 등 국토교통부령으로 정하는 서류를 …\n② …" }],
+  outputPath: "~/Desktop/건축법-대비표.hwpx"   // 로컬 실행에서만
+)
+```
+
+- 개정안은 조문 전체를 적는다(한 줄에 한 단위). 바뀌지 않는 항·호는 대비표처럼 `② ∼ ⑤ (현행과 같음)`·`1.·2. (현행과 같음)`, 조 본문은 `제2조(정의) (현행과 같음)`으로 줄여 써도 현행에서 채운다. 아무것도 안 적은 현행 항·호는 `<삭  제>`로 적고 "확인할 점"에 알린다. 지우는 항은 `③ 삭제`, 조 전체 삭제는 `제5조 삭제`
+- 번호는 현행 기준으로 짝짓는다(법제처 신구법비교와 같이): 가운데 항을 끼우면 밀린 항은 바뀐 항, 끝 번호가 `<신  설>`
+
 ### AI 검색 → 상세 조회
 
 ```
@@ -244,11 +345,17 @@
    → HWP 파일 다운로드 → 표 Markdown 변환
 ```
 
-### 체인 도구 (종합 리서치)
+### 통합 리서치 (legal_research)
 
 ```
-1. chain_full_research(query="음주운전 처벌")
-   → AI검색 → 법령조문 → 판례 → 해석례 자동 수행
+1. legal_research(query="음주운전 처벌")
+   → AI검색 → 법령조문 → 판례 → 해석례 자동 수행 (task 기본값 full_research)
+
+2. legal_research(query="관세법", task="law_system")
+   → 법률·시행령·시행규칙 3단 + 위임구조
+
+3. legal_analysis(mode="cite_check", caseNumber="2013다61381")
+   → 판례 생사 확인
 ```
 
 ---

@@ -2,7 +2,14 @@ import { z } from "zod";
 import type { LawApiClient } from "../lib/api-client.js";
 import { parseConstitutionalXML } from "../lib/xml-parser.js";
 import { truncateResponse } from "../lib/schemas.js";
-import { formatToolError } from "../lib/errors.js";
+import { formatToolError, noResultHint } from "../lib/errors.js";
+import { decisionFields } from "../lib/decision-fields.js";
+import {
+  compactBody,
+  densifyLawRefs,
+  densifyPrecedentRefs,
+  stripRepeatedSummary,
+} from "../lib/decision-compact.js";
 
 // Constitutional Court decision search tool - Search for Constitutional Court rulings
 export const searchConstitutionalDecisionsSchema = z.object({
@@ -44,15 +51,7 @@ export async function searchConstitutionalDecisions(
     const decisions = result.items;
 
     if (totalCount === 0) {
-      let errorMsg = "검색 결과가 없습니다.";
-
-      return {
-        content: [{
-          type: "text",
-          text: errorMsg
-        }],
-        isError: true
-      };
+      return noResultHint(args.query || args.caseNumber || "", "헌법재판소 결정")
     }
 
     let output = `헌재결정례 검색 결과 (총 ${totalCount}건, ${currentPage}페이지):\n\n`;
@@ -72,7 +71,7 @@ export async function searchConstitutionalDecisions(
     return {
       content: [{
         type: "text",
-        text: output
+        text: truncateResponse(output)
       }]
     };
   } catch (error) {
@@ -84,6 +83,7 @@ export async function searchConstitutionalDecisions(
 export const getConstitutionalDecisionTextSchema = z.object({
   id: z.string().describe("헌재결정례일련번호 (검색 결과에서 획득)"),
   caseName: z.string().optional().describe("사건명 (선택사항, 검증용)"),
+  full: z.boolean().optional().describe("true=전문 그대로. 미지정 시 '전문' 섹션 계단식 축약"),
   apiKey: z.string().optional().describe("법제처 Open API 인증키(OC). 사용자가 제공한 경우 전달"),
 });
 
@@ -115,7 +115,7 @@ export async function getConstitutionalDecisionText(
       throw new Error("헌재결정례를 찾을 수 없거나 응답 형식이 올바르지 않습니다.");
     }
 
-    const decision = data.DetcService || data.헌재결정례;
+    const decision = decisionFields(data.DetcService || data.헌재결정례);
 
     let output = `=== ${decision.사건명 || "헌재결정례"} ===\n\n`;
 
@@ -126,24 +126,29 @@ export async function getConstitutionalDecisionText(
     if (decision.피청구인) output += `  피청구인: ${decision.피청구인}\n`;
     output += `\n`;
 
+    const summaryText = decision.결정요지 || decision.판결요지;
+
     if (decision.판시사항) {
       output += `판시사항:\n${decision.판시사항}\n\n`;
     }
 
-    if (decision.결정요지 || decision.판결요지) {
-      output += `결정요지:\n${decision.결정요지 || decision.판결요지}\n\n`;
+    if (summaryText) {
+      output += `결정요지:\n${summaryText}\n\n`;
     }
 
     if (decision.참조조문) {
-      output += `참조조문:\n${decision.참조조문}\n\n`;
+      output += `참조조문:\n${densifyLawRefs(decision.참조조문)}\n\n`;
     }
 
     if (decision.참조판례) {
-      output += `참조판례:\n${decision.참조판례}\n\n`;
+      output += `참조판례:\n${densifyPrecedentRefs(decision.참조판례)}\n\n`;
     }
 
-    if (decision.판례내용 || decision.결정내용 || decision.전문) {
-      output += `전문:\n${decision.판례내용 || decision.결정내용 || decision.전문}\n`;
+    const bodyText = decision.판례내용 || decision.결정내용 || decision.전문;
+    if (bodyText) {
+      const deduped = stripRepeatedSummary(bodyText, [decision.판시사항, summaryText]);
+      const compacted = compactBody(deduped, { full: args.full });
+      output += `전문:\n${compacted}\n`;
     }
 
     return {
