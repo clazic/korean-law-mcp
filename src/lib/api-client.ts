@@ -26,6 +26,7 @@ const lookupRetryFor = (target: string) =>
   MISS_AS_BAD_BODY_TARGETS.has(target) ? DRF_LOOKUP_RETRY : DRF_RETRY
 import { requestContext } from "./session-state.js"
 import { getLawApiBaseUrl } from "./law-url-config.js"
+import { pesRelayKey } from "./pes-relay.js"
 
 const LAW_API_BASE = getLawApiBaseUrl()
 
@@ -58,6 +59,9 @@ export class LawApiClient {
    * 4. 생성자에서 받은 기본 키
    */
   private getApiKey(overrideKey?: string): string {
+    // PES 중계 모드(CLI 전용): 인자·환경 변수의 키를 모두 무시하고 자리표시를 쓴다
+    const relayKey = pesRelayKey()
+    if (relayKey) return relayKey
     const ctxApiKey = requestContext.getStore()?.apiKey
     const key = overrideKey || ctxApiKey || process.env.LAW_OC || process.env.KOREAN_LAW_API_KEY || this.defaultApiKey
     if (!key) {

@@ -10,6 +10,7 @@ import { classifyOkBody, MISS_CONFIRM_DELAY_MS, UpstreamRecordMissingError } fro
 import { BODY_IDLE_TIMEOUT_MS, UpstreamBodyStallError } from "./response-body.js"
 import { combineAbortSignals, getRequestSignal, requestCancelledError, requestContext, runWithRequestContext, throwIfRequestCancelled } from "./session-state.js"
 import { bindResponseContext } from "./response-body-context.js"
+import { PesRelayError, relayFetch } from "./pes-relay.js"
 
 /**
  * URL에서 민감 정보(API 키) 마스킹 — 에러 메시지/로그 노출 방지.
@@ -178,7 +179,7 @@ export async function fetchWithRetry(
       // This is intentionally charged per *attempt*: retry and anti-bot work
       // must not turn one tool call into unbounded upstream activity.
       requestContext.getStore()?.budget?.consumeUpstreamRequest()
-      let response = await fetch(url, {
+      let response = await relayFetch(url, {
         ...fetchOptions,
         headers,
         signal,
@@ -257,6 +258,8 @@ export async function fetchWithRetry(
         throw requestCancelledError(getRequestSignal()?.reason ?? externalSignal?.reason)
       }
       if (error instanceof ExecutionLimitError) throw error
+      // PES 중계 오류·키 0개는 다시 해도 같다 — 재시도하지 않는다
+      if (error instanceof PesRelayError) throw error
       // 확인 재시도까지 마친 미스 판정 — 네트워크 오류로 오인해 사다리를 다시 열면 안 된다.
       if (error instanceof UpstreamRecordMissingError) throw error
 

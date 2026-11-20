@@ -2,6 +2,7 @@ import http from "node:http"
 import net from "node:net"
 import tls from "node:tls"
 import { getRequestSignal, requestCancelledError, requestContext, throwIfRequestCancelled } from "./session-state.js"
+import { pesRelayActive } from "./pes-relay.js"
 
 const DEFAULT_TIMEOUT = 30000
 
@@ -27,6 +28,8 @@ export interface ExternalHttpsResponse {
 }
 
 export function getExternalHttpsProxyConfig(): ExternalHttpsProxyConfig | null {
+  // PES 중계 모드에서는 기관 요청이 모두 중계(fetchWithRetry 경로)로 가야 한다 — 별도 프록시를 쓰지 않는다
+  if (pesRelayActive()) return null
   const raw = (process.env.LAW_EXTERNAL_HTTPS_PROXY || "").trim()
   if (!raw) return null
 

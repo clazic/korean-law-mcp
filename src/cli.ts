@@ -23,6 +23,7 @@ import { allTools } from "./tool-registry.js"
 import { enableAmendmentFileOutput } from "./tools/amendment-table.js"
 import { explainRoute } from "./lib/route-explain.js"
 import { VERSION } from "./version.js"
+import { enablePesRelay, pesRelayKey } from "./lib/pes-relay.js"
 import {
   fmt, printBanner, formatOutput,
   printInteractiveHelp, printToolList, getCategory,
@@ -352,7 +353,7 @@ export function createProgram(): Command {
 
       try {
         const parsed = tool.schema.parse(input)
-        const apiKey = (typeof input?.apiKey === "string" && input.apiKey) || cmdOpts.apiKey || process.env.LAW_OC || ""
+        const apiKey = pesRelayKey() ?? ((typeof input?.apiKey === "string" && input.apiKey) || cmdOpts.apiKey || process.env.LAW_OC || "")
         if (typeof apiKey !== "string" || !apiKey) {
           console.error(fmt.red("LAW_OC 환경변수 또는 apiKey 파라미터가 필요합니다."))
           process.exit(1)
@@ -406,9 +407,18 @@ function separateFlags(args: string[]): { queryArgs: string[]; verbose: boolean;
   return { queryArgs, verbose, json }
 }
 
+/** PES 중계 모드(`PES_RELAY_URL`): 중계 오류·키 0개는 글을 그대로 보여 주고 끝낸다 */
+export function enablePesRelayForCli(): boolean {
+  return enablePesRelay((message) => {
+    console.error(fmt.red(message))
+    process.exit(1)
+  })
+}
+
 async function main() {
   const args = process.argv.slice(2)
   enableAmendmentFileOutput()
+  enablePesRelayForCli()
 
   // 인자가 없으면 대화형 모드
   if (args.length === 0) {

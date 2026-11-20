@@ -16,6 +16,7 @@
 import { readBodyPrefix, UpstreamBodyStallError } from "./response-body.js"
 import { ExecutionLimitError } from "./execution-limits.js"
 import { combineAbortSignals, getRequestSignal, requestContext, throwIfRequestCancelled } from "./session-state.js"
+import { relayFetch } from "./pes-relay.js"
 
 /**
  * 안티봇 판정에 읽는 프리픽스 크기.
@@ -62,7 +63,7 @@ async function fetchOnce(url: string, headers: Headers, timeout: number): Promis
   const timeoutId = setTimeout(() => controller.abort(), timeout)
   try {
     requestContext.getStore()?.budget?.consumeUpstreamRequest()
-    return await fetch(url, { headers, signal: combineAbortSignals(controller.signal, getRequestSignal()) })
+    return await relayFetch(url, { headers, signal: combineAbortSignals(controller.signal, getRequestSignal()) })
   } finally {
     clearTimeout(timeoutId)
   }

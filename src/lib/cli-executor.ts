@@ -12,13 +12,14 @@ import { SEARCH_DETAIL_CHAINS } from "./tool-chain-config.js"
 import type { ToolResponse } from "./types.js"
 import { fmt, printRouteInfo, formatOutput } from "./cli-format.js"
 import { explainRoute } from "./route-explain.js"
+import { pesRelayKey } from "./pes-relay.js"
 
 // ────────────────────────────────────────
 // API Client
 // ────────────────────────────────────────
 
 export function getApiClient(): LawApiClient {
-  const apiKey = process.env.LAW_OC || ""
+  const apiKey = pesRelayKey() ?? (process.env.LAW_OC || "")
   if (!apiKey) {
     console.error(fmt.red("LAW_OC 환경변수가 필요합니다."))
     console.error(fmt.dim("API 키 발급: https://open.law.go.kr/LSO/openApi/guideResult.do"))

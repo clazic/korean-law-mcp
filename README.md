@@ -219,6 +219,8 @@ korean-law help search_law                 # 도구별 도움말
 
 > 키 없이 공개 서버를 쓰면 키 없는 사용자 전원이 나눠 쓰는 서버 키 한도를 거칩니다. 자체 키를 넘기면 이 한도와 상관없습니다(무료 발급: https://open.law.go.kr).
 
+> **PES 중계 모드 (`korean-law` CLI 전용)**: 환경 변수 `PES_RELAY_URL` 이 있으면 CLI 는 `LAW_OC` · `KOREAN_LAW_API_KEY` · `apiKey` 를 모두 무시하고, 법제처로 가는 요청을 `{PES_RELAY_URL}/law/<scheme>/<host>/<path>?<query>` 로 보냅니다(머리글 `X-PES-Relay-Token: $PES_RELAY_TOKEN`, OC 자리에는 자리표시 `__PES_KEY_0__`). 실제 키는 중계(pes-bridge)가 끼워 넣습니다. `PES_RELAY_LAW_KEYS` 가 0 이거나 없으면 기관을 부르지 않고 안내한 뒤 끝납니다. MCP 서버(STDIO · HTTP)는 이 변수의 영향을 받지 않습니다.
+
 ---
 
 ## 사용 예시
