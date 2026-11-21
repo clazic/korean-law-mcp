@@ -13,7 +13,7 @@
 
 const RELAY_TOOL = "law"
 const KEY_PLACEHOLDER = "__PES_KEY_0__"
-const NO_KEY_MESSAGE = "PES 에 법령 키가 없어요. PES 「조사 도구 · 그림 키」에서 키를 넣으세요."
+const NO_KEY_MESSAGE = "PES 에 법령 키가 없어요. PES 「도구」에서 키를 넣으세요."
 const MAX_REDIRECTS = 5
 
 /** 중계가 낸 오류(401·403·409, `X-PES-Relay-Error: 1`)와 키 0개 — 다시 시도하지 않는다 */

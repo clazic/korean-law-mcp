@@ -7,7 +7,7 @@ import { fetchWithRetry } from "./fetch-with-retry.js"
 import { getExternalHttpsProxyConfig } from "./external-https-proxy.js"
 import { PesRelayError, disablePesRelay, enablePesRelay, pesRelayKey, relayFetch } from "./pes-relay.js"
 
-const NO_KEY = "PES 에 법령 키가 없어요. PES 「조사 도구 · 그림 키」에서 키를 넣으세요."
+const NO_KEY = "PES 에 법령 키가 없어요. PES 「도구」에서 키를 넣으세요."
 const XML = `<?xml version="1.0" encoding="UTF-8"?><LawSearch><totalCnt>0</totalCnt></LawSearch>`
 
 interface Seen { method: string; url: string; token?: string; referer?: string; body: string }
